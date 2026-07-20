@@ -226,6 +226,14 @@ const CARD_GAP_PX = 20;
 /* Distance from viewport top the gallery pins at while scrolling —
    clears the fixed navbar (64px) plus a little breathing room. */
 const GALLERY_TOP_OFFSET = 96;
+/* Extra scroll distance the gallery stays pinned on the LAST card before
+   releasing into the next section. Without this, the horizontal reveal
+   consumes the entire runway, so the pin unpins on the very next scroll
+   tick after the last card lands — the industries ticker starts entering
+   the viewport while the gallery is still large/pinned-looking, with no
+   pause in between. This buys a beat of "all cards shown, holding" before
+   the next section is allowed to scroll into view. */
+const HOLD_AFTER_LAST_CARD_PX = 320;
 
 /* ─── Video element (muted background loop) ─── */
 function PanelVideo({
@@ -399,11 +407,18 @@ export default function SectorSection() {
   const [maxOffset,     setMaxOffset]     = useState(0);
   const [trackOffset,   setTrackOffset]   = useState(0);
   const [stickyHeightPx,setStickyHeightPx]= useState(520);
+  /* Height of the section header ("FIVE INDUSTRIES / SERVICES OF IMPACT")
+     that pins together with the card row. It lives INSIDE the pinned box —
+     if it sat above in normal flow it would scroll off-screen before the
+     pin engages, leaving the pinned gallery header-less (the exact bug
+     this fixes). Measured because it wraps responsively. */
+  const [headerHeight,  setHeaderHeight]  = useState(0);
   const [pinPhase,      setPinPhase]      = useState<"before" | "pinned" | "after">("before");
   const [cursorPos,     setCursorPos]     = useState({ x: 0, y: 0 });
   const [cursorOver,    setCursorOver]    = useState(false);
   const scrollWrapRef = useRef<HTMLDivElement>(null);
   const stickyRef     = useRef<HTMLDivElement>(null);
+  const headerRef     = useRef<HTMLDivElement>(null);
 
   /* ── Scroll-reveal ── */
   useEffect(() => {
@@ -455,7 +470,14 @@ export default function SectorSection() {
       setCardWidth(cw);
       const trackWidth = SECTORS.length * cw + (SECTORS.length - 1) * CARD_GAP_PX;
       setMaxOffset(Math.max(0, trackWidth - w));
-      setStickyHeightPx(Math.min(680, Math.max(460, window.innerHeight * 0.58)));
+      /* Sticky-box height must leave room for the pinned header ABOVE the
+         cards (both pin as one block at GALLERY_TOP_OFFSET) — cap it so
+         header + cards fit the viewport instead of pushing the card row's
+         bottom off-screen. */
+      const headerH = headerRef.current?.offsetHeight ?? 0;
+      setHeaderHeight(headerH);
+      const availH = window.innerHeight - GALLERY_TOP_OFFSET - headerH - 16;
+      setStickyHeightPx(Math.min(680, Math.max(420, Math.min(window.innerHeight * 0.58, availH))));
     };
     measure();
     const ro = new ResizeObserver(measure);
@@ -483,7 +505,13 @@ export default function SectorSection() {
         const el = scrollWrapRef.current;
         if (!el) return;
         const rect = el.getBoundingClientRect();
-        const totalPinnable = Math.max(0, rect.height - stickyHeightPx);
+        /* The pinned block = header + card row stacked, so the scroll
+           runway left over for pin travel excludes BOTH heights. */
+        const totalPinnable = Math.max(0, rect.height - stickyHeightPx - headerHeight);
+        /* The last HOLD_AFTER_LAST_CARD_PX of the pinned range is a static
+           hold on the fully-revealed last card — trackOffset should reach
+           maxOffset before that hold starts, not at the very end of it. */
+        const horizontalRange = Math.max(0, totalPinnable - HOLD_AFTER_LAST_CARD_PX);
         if (rect.top > GALLERY_TOP_OFFSET) {
           setPinPhase("before");
           setTrackOffset(0);
@@ -492,7 +520,7 @@ export default function SectorSection() {
           setTrackOffset(maxOffset);
         } else {
           setPinPhase("pinned");
-          const progress = totalPinnable > 0 ? (GALLERY_TOP_OFFSET - rect.top) / totalPinnable : 1;
+          const progress = horizontalRange > 0 ? (GALLERY_TOP_OFFSET - rect.top) / horizontalRange : 1;
           setTrackOffset(Math.min(1, Math.max(0, progress)) * maxOffset);
         }
       });
@@ -503,7 +531,7 @@ export default function SectorSection() {
       window.removeEventListener("scroll", onScroll);
       if (raf) cancelAnimationFrame(raf);
     };
-  }, [maxOffset, stickyHeightPx, reducedMotion]);
+  }, [maxOffset, stickyHeightPx, headerHeight, reducedMotion]);
 
   /* Prev/next controls — advance by roughly one reveal-step of
      scroll distance, so mouse-click and keyboard users aren't
@@ -512,10 +540,11 @@ export default function SectorSection() {
     const el = scrollWrapRef.current;
     if (!el || maxOffset <= 0) return;
     const rect = el.getBoundingClientRect();
-    const totalPinnable = Math.max(0, rect.height - stickyHeightPx);
+    const totalPinnable = Math.max(0, rect.height - stickyHeightPx - headerHeight);
+    const horizontalRange = Math.max(0, totalPinnable - HOLD_AFTER_LAST_CARD_PX);
     const steps = Math.max(1, SECTORS.length - NUM_VISIBLE_CARDS);
-    window.scrollBy({ top: (dir * totalPinnable) / steps, behavior: "smooth" });
-  }, [maxOffset, stickyHeightPx]);
+    window.scrollBy({ top: (dir * horizontalRange) / steps, behavior: "smooth" });
+  }, [maxOffset, stickyHeightPx, headerHeight]);
 
   /* ── Dive in — launches FROM the clicked card, not a centered fade.
      Mount with the overlay at its "closed" (scaled way up / opacity 0)
@@ -567,6 +596,75 @@ export default function SectorSection() {
   const advanceReel = useCallback(() => {
     setReelIndex(i => (i + 1) % reelList.length);
   }, [reelList.length]);
+
+  /* Section header — rendered in TWO places: in normal flow for mobile,
+     and inside the pinned gallery block on md+. It must live inside the
+     pinned block on desktop: in normal flow above the gallery it scrolls
+     off-screen before the pin engages, so the whole pinned card show
+     played out with its own title invisible. */
+  const galleryHeader = (
+    <div
+      className="px-5 sm:px-8 md:px-14 lg:px-20"
+      style={{
+        position: "relative", zIndex: 10,
+        maxWidth: "1440px", margin: "0 auto",
+        paddingBottom: "clamp(48px,6vh,72px)",
+        display: "flex", justifyContent: "space-between",
+        alignItems: "flex-end", gap: "24px", flexWrap: "wrap",
+        opacity: isVisible ? 1 : 0,
+        transform: isVisible ? "translateY(0)" : "translateY(48px)",
+        transition: "opacity 0.95s cubic-bezier(0.23,1,0.32,1), transform 0.95s cubic-bezier(0.23,1,0.32,1)",
+      }}
+    >
+      <div style={{ maxWidth: "640px" }}>
+        <span style={{
+          display: "block", marginBottom: "16px",
+          fontFamily: "var(--font-space-grotesk)",
+          fontWeight: 700, textTransform: "uppercase",
+          fontSize: "10px", letterSpacing: "0.30em", color: "#f59e0b",
+        }}>
+          Five Industries We Serve
+        </span>
+        <h2 style={{
+          fontFamily: "var(--font-syne)", fontWeight: 700,
+          textTransform: "uppercase",
+          fontSize: "clamp(22px, 2.6vw, 36px)",
+          letterSpacing: "-0.01em", lineHeight: 1.12, color: "#fdf2f2",
+          textWrap: "balance",
+          display: "flex", flexWrap: "wrap", columnGap: "0.3em",
+        }}>
+          {["Services", "of"].map((w, i) => (
+            <span key={w} style={{
+              display: "inline-block",
+              opacity: isVisible ? 1 : 0,
+              filter: isVisible ? "blur(0)" : "blur(8px)",
+              transition: `opacity 0.85s cubic-bezier(0.16,1,0.3,1) ${i * 110}ms, filter 0.85s cubic-bezier(0.16,1,0.3,1) ${i * 110}ms`,
+            }}>
+              {w}
+            </span>
+          ))}
+          <span style={{
+            display: "inline-block", color: "var(--amber-deep)", fontStyle: "italic",
+            fontWeight: 900,
+            opacity: isVisible ? 1 : 0,
+            filter: isVisible ? "blur(0)" : "blur(8px)",
+            transition: "opacity 0.85s cubic-bezier(0.16,1,0.3,1) 220ms, filter 0.85s cubic-bezier(0.16,1,0.3,1) 220ms",
+          }}>
+            Impact
+          </span>
+        </h2>
+      </div>
+      <div style={{ maxWidth: "360px", paddingBottom: "4px" }}>
+        <p style={{
+          fontFamily: "var(--font-space-grotesk)",
+          fontSize: "clamp(14px,1.05vw,16px)",
+          lineHeight: 1.65, color: "rgba(255,255,255,0.62)",
+        }}>
+          From fashion drops to showroom launches, we build the campaigns these industries actually talk about.
+        </p>
+      </div>
+    </div>
+  );
 
   return (
     <>
@@ -1137,68 +1235,10 @@ export default function SectorSection() {
           </div>
         )}
 
-        {/* ── Header ── */}
-        <div
-          className="px-5 sm:px-8 md:px-14 lg:px-20"
-          style={{
-            position: "relative", zIndex: 10,
-            maxWidth: "1440px", margin: "0 auto",
-            paddingBottom: "clamp(48px,6vh,72px)",
-            display: "flex", justifyContent: "space-between",
-            alignItems: "flex-end", gap: "24px", flexWrap: "wrap",
-            opacity: isVisible ? 1 : 0,
-            transform: isVisible ? "translateY(0)" : "translateY(48px)",
-            transition: "opacity 0.95s cubic-bezier(0.23,1,0.32,1), transform 0.95s cubic-bezier(0.23,1,0.32,1)",
-          }}
-        >
-          <div style={{ maxWidth: "640px" }}>
-            <span style={{
-              display: "block", marginBottom: "16px",
-              fontFamily: "var(--font-space-grotesk)",
-              fontWeight: 700, textTransform: "uppercase",
-              fontSize: "10px", letterSpacing: "0.30em", color: "#f59e0b",
-            }}>
-              Five Industries We Serve
-            </span>
-            <h2 style={{
-              fontFamily: "var(--font-syne)", fontWeight: 700,
-              textTransform: "uppercase",
-              fontSize: "clamp(22px, 2.6vw, 36px)",
-              letterSpacing: "-0.01em", lineHeight: 1.12, color: "#fdf2f2",
-              textWrap: "balance",
-              display: "flex", flexWrap: "wrap", columnGap: "0.3em",
-            }}>
-              {["Services", "of"].map((w, i) => (
-                <span key={w} style={{
-                  display: "inline-block",
-                  opacity: isVisible ? 1 : 0,
-                  filter: isVisible ? "blur(0)" : "blur(8px)",
-                  transition: `opacity 0.85s cubic-bezier(0.16,1,0.3,1) ${i * 110}ms, filter 0.85s cubic-bezier(0.16,1,0.3,1) ${i * 110}ms`,
-                }}>
-                  {w}
-                </span>
-              ))}
-              <span style={{
-                display: "inline-block", color: "var(--amber-deep)", fontStyle: "italic",
-                fontWeight: 900,
-                opacity: isVisible ? 1 : 0,
-                filter: isVisible ? "blur(0)" : "blur(8px)",
-                transition: "opacity 0.85s cubic-bezier(0.16,1,0.3,1) 220ms, filter 0.85s cubic-bezier(0.16,1,0.3,1) 220ms",
-              }}>
-                Impact
-              </span>
-            </h2>
-          </div>
-          <div style={{ maxWidth: "360px", paddingBottom: "4px" }}>
-            <p style={{
-              fontFamily: "var(--font-space-grotesk)",
-              fontSize: "clamp(14px,1.05vw,16px)",
-              lineHeight: 1.65, color: "rgba(255,255,255,0.62)",
-            }}>
-              From fashion drops to showroom launches, we build the campaigns these industries actually talk about.
-            </p>
-          </div>
-        </div>
+        {/* ── Header — mobile-only copy. On md+ the same header renders
+            inside the pinned gallery block below, so it stays on screen
+            while the cards scroll horizontally. ── */}
+        <div className="md:hidden">{galleryHeader}</div>
 
         {/* ── HORIZONTAL INDUSTRY GALLERY (desktop/tablet) ──
             3 industries visible at once. Scrolling the wheel/trackpad
@@ -1215,9 +1255,14 @@ export default function SectorSection() {
           className="hidden md:block"
           style={{
             position: "relative",
+            /* Runway = pinned block (header + card row) + pin travel.
+               stickyHeightPx/headerHeight are the same values the pin
+               math subtracts, so layout and phase boundaries stay in
+               exact sync (the old CSS clamp() here could drift from the
+               JS mirror once the header joined the pinned block). */
             height: reducedMotion
               ? "auto"
-              : `calc(clamp(460px,58vh,680px) + ${Math.max(maxOffset * 1.1, 240)}px)`,
+              : `${headerHeight + stickyHeightPx + Math.max(maxOffset * 1.1, 240) + HOLD_AFTER_LAST_CARD_PX}px`,
           }}
         >
           {/* Positioning phase toggled in JS (not CSS `position: sticky` —
@@ -1229,12 +1274,20 @@ export default function SectorSection() {
             bottom: !reducedMotion && pinPhase === "after" ? 0 : "auto",
             left: 0, right: 0, zIndex: 5,
           }}>
+            {/* Header pins WITH the cards — this is what keeps
+                "FIVE INDUSTRIES / SERVICES OF IMPACT" on screen for the
+                whole horizontal reveal instead of scrolling away before
+                the pin engages. */}
+            <div ref={headerRef}>{galleryHeader}</div>
             <div
               ref={stickyRef}
               className="md:px-14 lg:px-20"
               style={{
                 position: "relative",
-                height: "clamp(460px,58vh,680px)",
+                /* reduced-motion never runs measure(), so it keeps the CSS
+                   clamp; the pinned path uses the JS-measured height the
+                   pin math is built on. */
+                height: reducedMotion ? "clamp(460px,58vh,680px)" : `${stickyHeightPx}px`,
                 /* Vertical breathing room for the hover-grow scale(1.07) —
                    without it, the scaled card's top/bottom (plus its
                    rounded corners) extend past this box and get clipped
@@ -1248,6 +1301,16 @@ export default function SectorSection() {
                 overflowX: reducedMotion ? "auto" : "hidden",
                 overflowY: "hidden",
                 scrollSnapType: reducedMotion ? "x mandatory" : "none",
+                /* Cards at rest exactly fill the padded content box, so the
+                   next card in line bleeds into the right-side padding and
+                   gets hard-clipped flush against the true edge — while the
+                   left side keeps its full padding gutter. That asymmetry
+                   (clean gap on one side, a card slammed against the other)
+                   is what read as "off-center". A soft fade at both edges
+                   makes the partial card read as a deliberate peek instead,
+                   and keeps the framing visually balanced on both sides. */
+                WebkitMaskImage: reducedMotion ? "none" : "linear-gradient(to right, transparent 0%, #000 8%, #000 92%, transparent 100%)",
+                maskImage: reducedMotion ? "none" : "linear-gradient(to right, transparent 0%, #000 8%, #000 92%, transparent 100%)",
               }}
               onMouseMove={reducedMotion ? undefined : (e => {
                 const r = e.currentTarget.getBoundingClientRect();
