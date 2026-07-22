@@ -18,18 +18,21 @@
   --font-display: var(--font-syne);
 }
 
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
-}
+/* NOTE: no universal margin/padding reset here. Tailwind v4 preflight
+   already provides it INSIDE @layer base — an unlayered star-selector
+   reset would outrank every padding utility class (unlayered beats
+   layered) and silently strip all padding site-wide. */
 
-html,
-body {
+/* Keep the WINDOW as the scroll container. Putting height:100% +
+   overflow-x:hidden on body turns body into its own scroller
+   (overflow-x:hidden forces overflow-y:auto), which silently breaks
+   window.scrollY and every scroll-linked animation. */
+html {
   height: 100%;
   overflow-x: hidden;
+}
+body {
+  min-height: 100%;
 }
 
 html {
@@ -81,6 +84,115 @@ body {
 @keyframes fade-up {
   from { opacity: 0; transform: translateY(20px); }
   to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Outlined display type — "BRANDS" is drawn, not printed.
+   Hovering it pours the ink in. ── */
+.h-stroke {
+  color: transparent;
+  -webkit-text-stroke: 1.8px var(--amber-deep);
+  transition: color 600ms cubic-bezier(0.16, 1, 0.3, 1);
+  cursor: default;
+}
+.h-stroke:hover {
+  color: var(--amber-deep);
+}
+@media (max-width: 640px) {
+  .h-stroke { -webkit-text-stroke-width: 1.6px; }
+}
+
+/* ── Magnetic CTA ── */
+.cta-launch {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  transition:
+    background   350ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 350ms cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow   350ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.cta-launch:hover {
+  background: rgba(249, 115, 22, 0.16);
+  border-color: rgba(249, 115, 22, 0.60);
+  box-shadow: 0 0 40px rgba(249, 115, 22, 0.25);
+}
+.cta-icon {
+  background: rgba(255, 255, 255, 0.10);
+  transition:
+    transform  350ms cubic-bezier(0.16, 1, 0.3, 1),
+    background 350ms cubic-bezier(0.16, 1, 0.3, 1),
+    color      350ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.cta-launch:hover .cta-icon {
+  transform: translate(2px, -2px) scale(1.05);
+  background: #f97316;
+  color: #04040a;
+}
+
+/* Sheen sweep — light passes across the pill on hover */
+.cta-sheen {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  pointer-events: none;
+}
+.cta-sheen::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -70%;
+  width: 45%;
+  background: linear-gradient(
+    105deg,
+    transparent,
+    rgba(255, 255, 255, 0.16),
+    transparent
+  );
+  transform: skewX(-20deg);
+  transition: left 750ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.cta-launch:hover .cta-sheen::after {
+  left: 130%;
+}
+
+/* ── Scroll cue — thin line that keeps falling ── */
+.scroll-cue {
+  background: linear-gradient(to bottom, rgba(249, 115, 22, 0.7), transparent);
+  animation: cue-fall 1.8s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+  transform-origin: 50% 0%;
+}
+@keyframes cue-fall {
+  0%   { transform: scaleY(0);   opacity: 0; }
+  35%  { transform: scaleY(1);   opacity: 1; }
+  100% { transform: scaleY(1) translateY(24px); opacity: 0; }
+}
+
+/* ── Interaction-hint pulse ── */
+.hint-pulse {
+  animation: hint-breathe 3.2s ease-in-out infinite;
+}
+@keyframes hint-breathe {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(249, 115, 22, 0); }
+  50%      { box-shadow: 0 0 22px 0 rgba(249, 115, 22, 0.14); }
+}
+
+/* ── Film grain — animated celluloid noise, transform-only ── */
+.film-grain {
+  position: absolute;
+  inset: -100%;
+  pointer-events: none;
+  opacity: 0.05;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.72' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.7'/></svg>");
+  animation: grain-shift 0.9s steps(6) infinite;
+}
+@keyframes grain-shift {
+  0%   { transform: translate(0, 0); }
+  20%  { transform: translate(-3%, 2%); }
+  40%  { transform: translate(2%, -3%); }
+  60%  { transform: translate(-2%, -2%); }
+  80%  { transform: translate(3%, 3%); }
+  100% { transform: translate(0, 0); }
 }
 
 /* ── Reduced motion ── */

@@ -58,9 +58,23 @@ function buildStars(): THREE.Points {
   }));
 }
 
+/* ── Shooting-star streak texture — hot white head, ember tail ── */
+function createStreakTex(): THREE.CanvasTexture {
+  const cv=document.createElement("canvas"); cv.width=256; cv.height=32;
+  const ctx=cv.getContext("2d")!;
+  const g=ctx.createLinearGradient(0,16,256,16);
+  g.addColorStop(0.00,"rgba(249,115,22,0)");
+  g.addColorStop(0.70,"rgba(255,190,140,0.45)");
+  g.addColorStop(0.96,"rgba(255,255,255,0.95)");
+  g.addColorStop(1.00,"rgba(255,255,255,0)");
+  ctx.fillStyle=g; ctx.fillRect(0,0,256,32);
+  return new THREE.CanvasTexture(cv);
+}
+
 /* ══════════════════════════════════════════════════════════ */
 export default function RocketCanvas() {
   const mountRef=useRef<HTMLDivElement>(null);
+  const glowRef =useRef<HTMLDivElement>(null);
   const rafRef  =useRef<number>(0);
 
   useEffect(()=>{
@@ -82,7 +96,9 @@ export default function RocketCanvas() {
     const camera=new THREE.PerspectiveCamera(52,mount.clientWidth/mount.clientHeight,0.1,200);
     camera.position.set(0,1.0,7.5); camera.lookAt(0.5,0,0);
 
-    /* ── Lights ── */
+    /* ── Lights — ORIGINAL rig (user-approved look): white key with
+       violet/cyan colored rims. No environment map — the deep, rich
+       hull color depends on it staying dark.                          ── */
     scene.add(new THREE.AmbientLight(0xffffff,0.10));
     const key=new THREE.DirectionalLight(0xffffff,4.2); key.position.set(5,9,5);    scene.add(key);
     const vr =new THREE.PointLight(0x7c3aed,32,26); vr.position.set(-5.5,-2,3);   scene.add(vr);
@@ -94,6 +110,30 @@ export default function RocketCanvas() {
 
     /* ── Stars ── */
     const stars=buildStars(); scene.add(stars);
+
+    /* ── Shooting stars — rare, brief, additive streaks ── */
+    const streakTex=createStreakTex();
+    const meteors:{sp:THREE.Sprite;vel:THREE.Vector3;life:number;maxLife:number}[]=[];
+    for(let i=0;i<3;i++){
+      const sp=new THREE.Sprite(new THREE.SpriteMaterial({
+        map:streakTex,transparent:true,opacity:0,
+        blending:THREE.AdditiveBlending,depthWrite:false,
+      }));
+      sp.visible=false;scene.add(sp);
+      meteors.push({sp,vel:new THREE.Vector3(),life:0,maxLife:1});
+    }
+    let nextMeteor=2.5+Math.random()*3;
+    const spawnMeteor=()=>{
+      const m=meteors.find(mm=>mm.life<=0); if(!m) return;
+      const dir=Math.random()<0.5?1:-1;
+      m.sp.position.set(-dir*(14+Math.random()*10), 6+Math.random()*6, -24-Math.random()*18);
+      m.vel.set(dir*(16+Math.random()*10), -(5+Math.random()*4), 0);
+      m.maxLife=m.life=0.9+Math.random()*0.7;
+      const len=4+Math.random()*3;
+      m.sp.scale.set(len,len*0.06,1);
+      (m.sp.material as THREE.SpriteMaterial).rotation=Math.atan2(m.vel.y,m.vel.x);
+      m.sp.visible=true;
+    };
 
     /* ══════════════════════════════════════════════════════════
        SMOKE SYSTEM
@@ -160,7 +200,11 @@ export default function RocketCanvas() {
     /* ── Group hierarchy ──
        rocketParent → arcballGroup → tiltGroup → bodySpinGroup → model / exhaust
     ── */
-    const OX=1.5,OY=0.0;
+    /* Portrait screens: lift the rocket so the exhaust flame clears the
+       copy + CTA that stack underneath it on narrow layouts. */
+    const OX=1.5;let OY=0.0;
+    const applyAspectOffset=()=>{OY=(mount.clientWidth/mount.clientHeight<0.8)?1.15:0.0;};
+    applyAspectOffset();
     const rocketParent=new THREE.Group();rocketParent.position.set(OX,OY,0);
     rocketParent.scale.setScalar(0);scene.add(rocketParent);
     const arcballGroup=new THREE.Group();rocketParent.add(arcballGroup);
@@ -170,6 +214,7 @@ export default function RocketCanvas() {
 
     /* ── GLB load ── */
     let loaded=false,loadedAt=0;
+    let reapplyModelScale:(()=>void)|null=null;
     let nozzleLight:THREE.PointLight|null=null;
     const nozzleWorldPos=new THREE.Vector3();
     /* Blender flame meshes — referenced for live emissiveIntensity animation */
@@ -190,7 +235,12 @@ export default function RocketCanvas() {
       /* Full bbox for scale; body-only for centering */
       const fullBox=new THREE.Box3().setFromObject(model);
       const fullSz=new THREE.Vector3();fullBox.getSize(fullSz);
-      const sc=6.0/Math.max(fullSz.x,fullSz.y,fullSz.z);
+      const modelMax=Math.max(fullSz.x,fullSz.y,fullSz.z);
+      /* Portrait: smaller rocket so the long exhaust flame stays clear
+         of the copy/CTA stacked beneath it. Re-applied on resize so
+         phone rotation / window resizing recomposes correctly. */
+      const scaleFor=()=>((mount.clientWidth/mount.clientHeight<0.8)?4.5:6.0)/modelMax;
+      const sc=scaleFor();
 
       const bodyBox=new THREE.Box3();
       model.traverse((child)=>{
@@ -203,6 +253,11 @@ export default function RocketCanvas() {
       bodyBox.getSize(sz);bodyBox.getCenter(ctr);
       model.scale.setScalar(sc);
       model.position.set(-ctr.x*sc,-ctr.y*sc,-ctr.z*sc);
+      reapplyModelScale=()=>{
+        const s=scaleFor();
+        model.scale.setScalar(s);
+        model.position.set(-ctr.x*s,-ctr.y*s,-ctr.z*s);
+      };
 
       /* Apply materials:
          - Blender flames → AdditiveBlending, moderate ei, recolour near-white → blue
@@ -246,7 +301,13 @@ export default function RocketCanvas() {
     /* ── Pointer ── */
     let ptrDown=false,ptrX=0,ptrY=0,ptrMoved=0,ptrT=0;
     let pendDX=0,pendDY=0,isDrag=false,arcTimer=0;
-    const onPD=(e:PointerEvent)=>{ptrDown=true;ptrX=e.clientX;ptrY=e.clientY;ptrMoved=0;ptrT=performance.now();clearTimeout(arcTimer);};
+    const onPD=(e:PointerEvent)=>{
+      /* Ignore presses on real UI (CTA, nav links) — otherwise clicking
+         "Start Your Launch" would also fire the rocket launch */
+      const t=e.target as HTMLElement;
+      if(t&&typeof t.closest==="function"&&t.closest("a,button,nav")) return;
+      ptrDown=true;ptrX=e.clientX;ptrY=e.clientY;ptrMoved=0;ptrT=performance.now();clearTimeout(arcTimer);
+    };
     const onPM=(e:PointerEvent)=>{
       if(!ptrDown) return;
       const dx=e.clientX-ptrX,dy=e.clientY-ptrY;ptrX=e.clientX;ptrY=e.clientY;
@@ -264,6 +325,35 @@ export default function RocketCanvas() {
     window.addEventListener("pointermove",onPM);
     window.addEventListener("pointerup",onPU);
 
+    /* ── Cursor parallax — camera itself drifts toward the pointer,
+       so the whole scene gains depth the moment the mouse moves ── */
+    let parX=0,parY=0,parTX=0,parTY=0;
+    const onMouseMove=(e:MouseEvent)=>{
+      parTX=(e.clientX/window.innerWidth -0.5)*2;
+      parTY=(e.clientY/window.innerHeight-0.5)*2;
+    };
+    window.addEventListener("mousemove",onMouseMove);
+
+    /* ── ENGINE THROTTLE — the CTA button revs the rocket.
+       HeroOverlay dispatches "fw:throttle" (0..1) on CTA hover.  ── */
+    let throttle=0,throttleT=0;
+    const onThrottle=(e:Event)=>{throttleT=(e as CustomEvent).detail??0;};
+    window.addEventListener("fw:throttle",onThrottle);
+
+    /* ── SCROLL = LAUNCH — leaving the hero performs the liftoff;
+       returning to the top lets the rocket re-enter and re-arm.  ── */
+    let scrollFired=false;
+    const onScroll=()=>{
+      if(reduced) return;
+      const y=window.scrollY;
+      if(!scrollFired&&y>window.innerHeight*0.15&&loaded&&flyState==="idle"){
+        scrollFired=true;startFly();
+      }else if(scrollFired&&y<60&&flyState==="idle"){
+        scrollFired=false;
+      }
+    };
+    window.addEventListener("scroll",onScroll,{passive:true});
+
     /* ── Launch state machine ── */
     type FS="idle"|"ignition"|"smoke"|"liftoff"|"flying"|"gone"|"enter";
     let flyState:FS="idle",flyT=0;
@@ -275,12 +365,15 @@ export default function RocketCanvas() {
       camera.aspect=mount.clientWidth/mount.clientHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(mount.clientWidth,mount.clientHeight);
+      applyAspectOffset();
+      if(reapplyModelScale) reapplyModelScale();
     };
     window.addEventListener("resize",onResize);
 
     const eob =(t:number)=>{const c=1.70158,c3=c+1;return 1+c3*Math.pow(t-1,3)+c*Math.pow(t-1,2);};
     const expo=(t:number)=>t>=1?1:1-Math.pow(2,-10*t);
     const L   =THREE.MathUtils.lerp;
+    const projV=new THREE.Vector3(); // reused for light-bleed projection
 
     let last=performance.now(),elapsed=0;
     /* Smoothed flame emissiveIntensity target (additive: keep low, 0.22 idle → 0.55 launch) */
@@ -291,8 +384,32 @@ export default function RocketCanvas() {
       const now=performance.now(),dt=Math.min((now-last)/1000,0.05);
       last=now;elapsed+=dt;
 
-      (stars.material as THREE.PointsMaterial).opacity=Math.min(elapsed/0.8,1)*0.26;
+      (stars.material as THREE.PointsMaterial).opacity=
+        Math.min(elapsed/0.8,1)*(0.26+Math.sin(elapsed*1.7)*0.045);
       if(!reduced) og.rotation.y+=dt*(Math.PI/6);
+
+      /* Camera parallax + slow breathing drift */
+      if(!reduced){
+        parX+=(parTX-parX)*Math.min(dt*2.5,1);
+        parY+=(parTY-parY)*Math.min(dt*2.5,1);
+        camera.position.x=parX*0.55;
+        camera.position.y=1.0-parY*0.35+Math.sin(elapsed*0.22)*0.05;
+        camera.lookAt(0.5,0,0);
+      }
+
+      /* Shooting stars */
+      if(!reduced){
+        nextMeteor-=dt;
+        if(nextMeteor<=0){spawnMeteor();nextMeteor=3.5+Math.random()*5;}
+        for(const m of meteors){
+          if(m.life<=0) continue;
+          m.life-=dt;
+          if(m.life<=0){m.sp.visible=false;continue;}
+          m.sp.position.addScaledVector(m.vel,dt);
+          (m.sp.material as THREE.SpriteMaterial).opacity=
+            Math.sin(Math.PI*Math.min(m.life/m.maxLife,1))*0.55;
+        }
+      }
 
       updateSmoke(dt);
 
@@ -327,6 +444,23 @@ export default function RocketCanvas() {
 
       /* Nozzle world pos for smoke */
       if(nozzleLight) nozzleLight.getWorldPosition(nozzleWorldPos);
+
+      /* ── ENGINE LIGHT BLEED — project the flame's position into
+         screen space and cast its glow onto the HTML layer, so the
+         3D engine literally lights the 2D page around it.         ── */
+      if(glowRef.current){
+        if(nozzleLight&&rocketParent.visible){
+          projV.copy(nozzleWorldPos).project(camera);
+          const gx=(projV.x*0.5+0.5)*100, gy=(-projV.y*0.5+0.5)*100;
+          const ga=Math.max(0,Math.min(0.34,(flameEI-0.04)*0.42));
+          glowRef.current.style.background=
+            `radial-gradient(ellipse 30% 24% at ${gx.toFixed(2)}% ${gy.toFixed(2)}%,`+
+            `rgba(96,170,255,${ga.toFixed(3)}) 0%,`+
+            `rgba(56,110,240,${(ga*0.38).toFixed(3)}) 38%, transparent 72%)`;
+        }else{
+          glowRef.current.style.background="none";
+        }
+      }
 
       /* ── Launch state machine ── */
       const fe=now-flyT;
@@ -395,19 +529,26 @@ export default function RocketCanvas() {
         }
 
       }else{
-        /* IDLE: float + TIN-ROLLING SPIN + flame gently pulses */
-        flameEI=L(flameEI,0.22,dt*3.0);
+        /* IDLE: float + TIN-ROLLING SPIN + flame gently pulses.
+           throttle (CTA hover) revs the engine: flame surge, tremble,
+           smoke — the button and the rocket are one machine. */
+        throttle+=(throttleT-throttle)*Math.min(dt*4,1);
+        flameEI=L(flameEI,0.22+throttle*0.40,dt*4.0);
         if(!reduced){
-          rocketParent.position.y=OY+Math.sin(elapsed*0.62)*0.22;
-          rocketParent.position.x=OX+Math.sin(elapsed*0.28)*0.06;
+          const trem=throttle*0.030;
+          rocketParent.position.y=OY+Math.sin(elapsed*0.62)*0.22+(Math.random()-0.5)*trem;
+          rocketParent.position.x=OX+Math.sin(elapsed*0.28)*0.06+(Math.random()-0.5)*trem;
           rocketParent.position.z=0;
+          if(throttle>0.08&&Math.random()<dt*7*throttle) spawnSmoke(nozzleWorldPos,1);
         }
         if(isDrag&&(pendDX!==0||pendDY!==0)){
           arcballGroup.rotation.y+=pendDX;
           arcballGroup.rotation.x=Math.max(-Math.PI*0.55,Math.min(Math.PI*0.55,arcballGroup.rotation.x+pendDY));
           pendDX=0;pendDY=0;
         }else if(!isDrag&&!reduced){
-          arcballGroup.rotation.y*=0.97;arcballGroup.rotation.x*=0.97;
+          /* lean toward the cursor — the rocket notices you */
+          arcballGroup.rotation.y+=(parX*0.16-arcballGroup.rotation.y)*Math.min(dt*2.2,1);
+          arcballGroup.rotation.x+=(parY*0.10-arcballGroup.rotation.x)*Math.min(dt*2.2,1);
         }
         if(!reduced) bodySpinGroup.rotation.y+=dt*0.50;
       }
@@ -422,6 +563,9 @@ export default function RocketCanvas() {
       window.removeEventListener("pointerdown",onPD);
       window.removeEventListener("pointermove",onPM);
       window.removeEventListener("pointerup",onPU);
+      window.removeEventListener("mousemove",onMouseMove);
+      window.removeEventListener("fw:throttle",onThrottle);
+      window.removeEventListener("scroll",onScroll);
       window.removeEventListener("resize",onResize);
       clearTimeout(arcTimer);
 
@@ -446,6 +590,7 @@ export default function RocketCanvas() {
         else if(mat) disposeMaterial(mat);
       });
       smokeTex.dispose();
+      streakTex.dispose();
 
       renderer.dispose();
       renderer.forceContextLoss();
@@ -454,7 +599,15 @@ export default function RocketCanvas() {
   },[]);
 
   return(
-    <div ref={mountRef} className="absolute inset-0 z-[15] pointer-events-auto"
-      style={{cursor:"grab"}} aria-hidden="true"/>
+    /* pointer-events-none: rocket interaction listeners live on `window`,
+       so the canvas never needs to capture events itself. Capturing them
+       was silently blocking hover/click on the CTA underneath (z-10). */
+    <>
+      <div ref={mountRef} className="absolute inset-0 z-[15] pointer-events-none"
+        aria-hidden="true"/>
+      {/* engine light bleed onto the HTML layer */}
+      <div ref={glowRef} className="absolute inset-0 z-[16] pointer-events-none"
+        style={{mixBlendMode:"screen"}} aria-hidden="true"/>
+    </>
   );
 }
