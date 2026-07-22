@@ -81,8 +81,20 @@ export default function RocketCanvas() {
     const mount=mountRef.current; if(!mount) return;
     const reduced=window.matchMedia("(prefers-reduced-motion:reduce)").matches;
 
-    /* ── Renderer ── */
-    const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true,premultipliedAlpha:true});
+    /* ── Renderer ──
+       WebGLRenderer's constructor THROWS (not just warns) when no WebGL
+       context is available — GPU disabled in the browser, some sandboxed/
+       remote-desktop setups, older devices, etc. Uncaught, that crashes
+       the whole page since HeroSection has no error boundary. Degrade to
+       "no rocket" instead: the gradient background, headline/CTA overlay,
+       and ember trail all render fine without this canvas. */
+    let renderer:THREE.WebGLRenderer;
+    try{
+      renderer=new THREE.WebGLRenderer({antialias:true,alpha:true,premultipliedAlpha:true});
+    }catch(err){
+      console.warn("RocketCanvas: WebGL unavailable, hero rocket disabled.",err);
+      return;
+    }
     renderer.setClearColor(0x000000,0);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
     renderer.setSize(mount.clientWidth,mount.clientHeight);

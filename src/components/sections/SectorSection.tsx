@@ -1340,7 +1340,6 @@ export default function SectorSection() {
                     style={{
                       flex: `0 0 ${cardWidth}px`,
                       width: `${cardWidth}px`,
-                      flexShrink: 0,
                       scrollSnapAlign: reducedMotion ? "start" : "none",
                       height: "100%", position: "relative", overflow: "hidden",
                       borderRadius: "18px",
