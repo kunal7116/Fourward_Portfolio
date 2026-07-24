@@ -101,14 +101,14 @@ const PROJECTS: Project[] = [
    here just means "not reduced-motion" — every card plays continuously
    as it rotates through, which is the whole point of the carousel. ─── */
 function LoopingClip({ src, playing, posterPos }: { src: string; playing: boolean; posterPos: string }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const videoRef = useRef < HTMLVideoElement > (null);
   const isVideo = isVideoSrc(src);
 
   useEffect(() => {
     const v = videoRef.current;
     if (!isVideo || !v) return;
     if (playing) {
-      v.play().catch(() => {});
+      v.play().catch(() => { });
     } else {
       v.pause();
       try { v.currentTime = 0.05; } catch { /* not seekable yet */ }
@@ -134,7 +134,7 @@ function LoopingClip({ src, playing, posterPos }: { src: string; playing: boolea
       loop
       playsInline
       preload="metadata"
-      onLoadedMetadata={(e) => { if (!playing) { try { e.currentTarget.currentTime = 0.05; } catch {} } }}
+      onLoadedMetadata={(e) => { if (!playing) { try { e.currentTarget.currentTime = 0.05; } catch { } } }}
       style={{
         position: "absolute", inset: 0,
         width: "100%", height: "100%", objectFit: "cover",
@@ -264,15 +264,15 @@ function ProjectFace({
    all meaning once the visitor scrolls past this section anyway).
    Portrait cards, radius tuned tight relative to card width so
    neighbours stay close instead of leaving a dead gap between them. ─── */
-const CARD_W = 240;
-const CARD_H = 330;
-const RADIUS = 300;
+const CARD_W = 320;
+const CARD_H = 440;
+const RADIUS = 400;
 const AUTO_SPEED = 9;     // deg/sec cruise speed
 const VELOCITY_EASE = 1.6; // how fast a flick's momentum settles back to cruise
 
 function Carousel3D({ projects, onOpen }: { projects: Project[]; onOpen: (p: Project, originEl?: HTMLElement) => void }) {
   const [rotation, setRotation] = useState(0);
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const [hoveredId, setHoveredId] = useState < string | null > (null);
   const rotationRef = useRef(0);
   const velocityRef = useRef(AUTO_SPEED);
   const draggingRef = useRef(false);
@@ -349,12 +349,6 @@ function Carousel3D({ projects, onOpen }: { projects: Project[]; onOpen: (p: Pro
     }
   }, []);
 
-  const step = useCallback((dir: 1 | -1) => {
-    rotationRef.current += dir * (360 / projects.length);
-    setRotation(rotationRef.current);
-    velocityRef.current = AUTO_SPEED;
-  }, [projects.length]);
-
   const angleStep = 360 / projects.length;
 
   return (
@@ -414,29 +408,6 @@ function Carousel3D({ projects, onOpen }: { projects: Project[]; onOpen: (p: Pro
           })}
         </div>
       </div>
-
-      {/* prev/next — same round-button language as the Services gallery */}
-      <div style={{ display: "flex", justifyContent: "center", gap: "12px", marginTop: "8px" }}>
-        {([["Previous project", -1], ["Next project", 1]] as const).map(([label, dir]) => (
-          <button
-            key={label}
-            type="button"
-            aria-label={label}
-            onClick={() => step(dir)}
-            style={{
-              width: "42px", height: "42px", borderRadius: "50%",
-              border: "1px solid rgba(249,115,22,0.35)",
-              background: "rgba(255,255,255,0.04)", color: "#f97316",
-              fontSize: "15px", cursor: "pointer",
-              transition: "background 0.3s ease, color 0.3s ease",
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = "#f97316"; e.currentTarget.style.color = "#0c0a09"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.04)"; e.currentTarget.style.color = "#f97316"; }}
-          >
-            {dir === -1 ? "←" : "→"}
-          </button>
-        ))}
-      </div>
     </div>
   );
 }
@@ -491,8 +462,8 @@ const scrubberBtnStyle: React.CSSProperties = {
    uses mix-blend-mode: exclusion so it reads against any footage
    underneath without its own background chrome. ─── */
 function LightboxVideoPlayer({ project, reduced }: { project: Project; reduced: boolean }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const barRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef < HTMLVideoElement > (null);
+  const barRef = useRef < HTMLDivElement > (null);
   const [playing, setPlaying] = useState(!reduced);
   const [muted, setMuted] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -519,7 +490,7 @@ function LightboxVideoPlayer({ project, reduced }: { project: Project; reduced: 
   const togglePlay = useCallback(() => {
     const v = videoRef.current;
     if (!v) return;
-    if (v.paused) v.play().catch(() => {}); else v.pause();
+    if (v.paused) v.play().catch(() => { }); else v.pause();
   }, []);
 
   const toggleMute = useCallback(() => {
@@ -594,15 +565,15 @@ export default function WorkSection() {
   const [isVisible, setIsVisible] = useState(false);
   const [reduced, setReduced] = useState(false);
   const [isDesktop, setIsDesktop] = useState(true);
-  const [openProject, setOpenProject] = useState<Project | null>(null);
+  const [openProject, setOpenProject] = useState < Project | null > (null);
   /* clip-path the reveal animates FROM — computed from whichever card was
      actually clicked, so the lightbox feels like it grows out of that
      specific card regardless of where it sits in the carousel, rather
      than always unfolding from a fixed spot on screen. */
   const [clipOrigin, setClipOrigin] = useState("inset(38% 38% 38% 38%)");
 
-  const sectionRef = useRef<HTMLElement>(null);
-  const closeBtnRef = useRef<HTMLButtonElement>(null);
+  const sectionRef = useRef < HTMLElement > (null);
+  const closeBtnRef = useRef < HTMLButtonElement > (null);
 
   useEffect(() => {
     setReduced(window.matchMedia("(prefers-reduced-motion: reduce)").matches);
@@ -684,7 +655,7 @@ export default function WorkSection() {
             </span>
             <h2 style={{
               fontFamily: "var(--font-syne)", fontWeight: 700,
-              textTransform: "uppercase", fontSize: "clamp(30px,4vw,54px)",
+              textTransform: "uppercase", fontSize: "clamp(38px,5vw,72px)",
               letterSpacing: "-0.02em", lineHeight: 1.04, color: "#fdf2f2",
               textWrap: "balance",
             }}>
